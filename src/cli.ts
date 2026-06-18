@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { restoreNativeCodex } from "./codex-inject";
 import { loadConfig, readPid, removePid, writePid } from "./config";
+import { serviceCommand } from "./service";
 import { startServer } from "./server";
 
 const args = process.argv.slice(2);
@@ -14,6 +15,7 @@ Usage:
   ocx start [--port <port>]   Start the proxy server (auto-syncs models to Codex)
   ocx stop                    Stop the proxy AND restore native Codex (plain codex works again)
   ocx restore                 Restore native Codex without stopping (alias: eject)
+  ocx service <sub>           Run as a background service (install|start|stop|status|uninstall)
   ocx sync                    Fetch models from providers and inject into Codex config
   ocx status                  Check proxy server status
   ocx login <provider>        OAuth login (xai) — opens browser, stores token in ~/.opencodex/auth.json
@@ -69,7 +71,9 @@ function handleStart() {
     console.log("\n🛑 Shutting down opencodex proxy...");
     server.stop(true);
     removePid();
-    try { restoreNativeCodex(); } catch { /* best-effort restore */ }
+    // Under the service (OCX_SERVICE), a restart re-injects on start — don't churn Codex config.
+    // `ocx service stop/uninstall` restore explicitly.
+    if (!process.env.OCX_SERVICE) { try { restoreNativeCodex(); } catch { /* best-effort restore */ } }
     process.exit(0);
   };
 
@@ -155,6 +159,9 @@ switch (command) {
     (await import("node:child_process")).exec(`open ${guiUrl}`);
     break;
   }
+  case "service":
+    serviceCommand(args[1]);
+    break;
   case "help":
   case "--help":
   case "-h":
