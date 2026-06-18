@@ -291,7 +291,28 @@ async function handleManagementAPI(req: Request, url: URL, config: OcxConfig): P
 
   if (url.pathname === "/api/models" && req.method === "GET") {
     const models = await fetchAllModels(config);
-    return jsonResponse(models.map(m => ({ ...m, namespaced: `${m.provider}/${m.id}` })));
+    const disabled = new Set(config.disabledModels ?? []);
+    return jsonResponse(models.map(m => {
+      const namespaced = `${m.provider}/${m.id}`;
+      return { ...m, namespaced, disabled: disabled.has(namespaced) };
+    }));
+  }
+
+  // Enable/disable models: which routed models Codex sees. PUT hides them from the catalog +
+  // /v1/models and invalidates Codex's 5-min models cache so it applies on the next turn.
+  if (url.pathname === "/api/disabled-models" && req.method === "PUT") {
+    let body: { models?: unknown };
+    try { body = await req.json(); } catch { return jsonResponse({ error: "invalid JSON body" }, 400); }
+    const disabled = Array.isArray(body.models) ? body.models.filter((m): m is string => typeof m === "string") : [];
+    config.disabledModels = disabled;
+    const { saveConfig: save } = await import("./config");
+    save(config);
+    try {
+      const { syncCatalogModels, invalidateCodexModelsCache } = await import("./codex-catalog");
+      await syncCatalogModels(config);
+      invalidateCodexModelsCache();
+    } catch { /* catalog absent */ }
+    return jsonResponse({ ok: true, disabled });
   }
 
   // Which providers support real OAuth login (drives the GUI's "Log in with …" buttons).
@@ -317,7 +338,11 @@ async function handleManagementAPI(req: Request, url: URL, config: OcxConfig): P
     config.subagentModels = chosen;
     const { saveConfig: save } = await import("./config");
     save(config);
-    try { const { syncCatalogModels } = await import("./codex-catalog"); await syncCatalogModels(config); } catch { /* catalog absent */ }
+    try {
+      const { syncCatalogModels, invalidateCodexModelsCache } = await import("./codex-catalog");
+      await syncCatalogModels(config);
+      invalidateCodexModelsCache();
+    } catch { /* catalog absent */ }
     return jsonResponse({ ok: true, applied: chosen });
   }
 
@@ -402,7 +427,9 @@ export function startServer(port?: number) {
       if (url.pathname === "/v1/models" && req.method === "GET") {
         const goModels = await fetchAllModels(config);
         const { buildCatalogEntries, loadCatalogTemplate, NATIVE_OPENAI_MODELS, orderForSubagents } = await import("./codex-catalog");
-        const goOrdered = orderForSubagents(goModels, config.subagentModels);
+        const disabledSet = new Set(config.disabledModels ?? []);
+        const goEnabled = goModels.filter(m => !disabledSet.has(`${m.provider}/${m.id}`));
+        const goOrdered = orderForSubagents(goEnabled, config.subagentModels);
         if (url.searchParams.has("client_version")) {
           // Codex client → Codex catalog shape: native gpt + namespaced routed models,
           // cloned from a native template so required fields (base_instructions, etc.) are present.

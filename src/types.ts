@@ -131,6 +131,8 @@ export interface OcxConfig {
    * Codex's spawn_agent only advertises the first 5 routed models, so this picks which 5 appear.
    */
   subagentModels?: string[];
+  /** Routed model ids ("<provider>/<model>") hidden from Codex (excluded from the catalog + /v1/models). */
+  disabledModels?: string[];
 }
 
 export interface OcxProviderConfig {

@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { atomicWriteFile } from "./config";
@@ -177,11 +177,14 @@ export async function syncCatalogModels(config: OcxConfig): Promise<{ added: num
   const goModels = await gatherRoutedModels(config);
   if (goModels.length === 0) return { added: 0, path: catalogPath };
 
-  const orderedGoModels = orderForSubagents(goModels, config.subagentModels);
+  // Hide disabled models from Codex, then feature the chosen subagent models first.
+  const disabled = new Set(config.disabledModels ?? []);
+  const enabledGo = goModels.filter(m => !disabled.has(`${m.provider}/${m.id}`));
+  const orderedGoModels = orderForSubagents(enabledGo, config.subagentModels);
   const goEntries = buildCatalogEntries(template ? JSON.parse(JSON.stringify(template)) : null, [], orderedGoModels);
   // Keep genuine native entries (gpt-*, codex-*), but drop bare duplicates of routed models —
   // they're replaced by the namespaced, identity-corrected entries — plus any prior "/" entries.
-  const goIds = new Set(goModels.map(m => m.id));
+  const goIds = new Set(enabledGo.map(m => m.id));
   const native = (catalog.models ?? []).filter(
     m => typeof m.slug === "string" && !m.slug.includes("/") && !goIds.has(m.slug),
   );
@@ -212,4 +215,16 @@ export function restoreCodexCatalog(): { removed: number; kept: number; path: st
     atomicWriteFile(catalogPath, JSON.stringify(catalog, null, 2) + "\n");
   }
   return { removed, kept: native.length, path: catalogPath };
+}
+
+/**
+ * Delete Codex's models cache (~/.codex/models_cache.json) so the next turn re-fetches /v1/models.
+ * Codex caches the model list for 5 min (DEFAULT_MODEL_CACHE_TTL); invalidating makes catalog edits
+ * (enable/disable, subagent reorder) apply on the next turn instead of waiting for the TTL.
+ */
+export function invalidateCodexModelsCache(): void {
+  try {
+    const p = join(homedir(), ".codex", "models_cache.json");
+    if (existsSync(p)) unlinkSync(p);
+  } catch { /* best-effort */ }
 }
