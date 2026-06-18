@@ -14,9 +14,17 @@ interface ProviderInfo {
   hasApiKey: boolean;
 }
 
+interface ModelInfo {
+  id: string;
+  provider: string;
+  owned_by?: string;
+}
+
 export default function Dashboard({ apiBase }: { apiBase: string }) {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -37,6 +45,15 @@ export default function Dashboard({ apiBase }: { apiBase: string }) {
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, [apiBase]);
+
+  useEffect(() => {
+    if (error) return;
+    setModelsLoading(true);
+    fetch(`${apiBase}/api/models`)
+      .then(r => r.json())
+      .then((data: ModelInfo[]) => { setModels(data); setModelsLoading(false); })
+      .catch(() => setModelsLoading(false));
+  }, [apiBase, error]);
 
   const card = (title: string, value: string, color = "#111") => (
     <div style={{ background: "#f9fafb", borderRadius: 8, padding: 16, flex: 1 }}>
@@ -90,6 +107,23 @@ export default function Dashboard({ apiBase }: { apiBase: string }) {
             ))}
           </tbody>
         </table>
+      )}
+
+      <h3 style={{ fontSize: 16, marginTop: 32, marginBottom: 12 }}>
+        Available Models
+        {modelsLoading && <span style={{ fontSize: 12, color: "#888", fontWeight: 400, marginLeft: 8 }}>loading...</span>}
+      </h3>
+      {models.length === 0 && !modelsLoading ? (
+        <div style={{ color: "#888", fontSize: 13 }}>No models found. Check provider API keys.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 8 }}>
+          {models.map(m => (
+            <div key={`${m.provider}/${m.id}`} style={{ background: "#f9fafb", borderRadius: 8, padding: "10px 14px", fontSize: 13 }}>
+              <div style={{ fontWeight: 600, marginBottom: 2 }}>{m.id}</div>
+              <div style={{ color: "#888", fontSize: 12 }}>{m.provider}{m.owned_by ? ` · ${m.owned_by}` : ""}</div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

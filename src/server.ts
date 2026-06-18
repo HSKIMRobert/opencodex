@@ -6,7 +6,7 @@ import { createGoogleAdapter } from "./adapters/google";
 import { createOpenAIChatAdapter } from "./adapters/openai-chat";
 import { createResponsesPassthroughAdapter } from "./adapters/openai-responses";
 import { bridgeToResponsesSSE, buildResponseJSON, formatErrorResponse } from "./bridge";
-import { loadConfig } from "./config";
+import { loadConfig, resolveEnvValue } from "./config";
 import { parseRequest } from "./responses/parser";
 import { routeModel } from "./router";
 import type { OcxConfig, OcxProviderConfig } from "./types";
@@ -208,7 +208,33 @@ async function handleManagementAPI(req: Request, url: URL, config: OcxConfig): P
     })));
   }
 
+  if (url.pathname === "/api/models" && req.method === "GET") {
+    return jsonResponse(await fetchAllModels(config));
+  }
+
   return null;
+}
+
+async function fetchAllModels(config: OcxConfig) {
+  const results: { id: string; provider: string; owned_by?: string }[] = [];
+  const fetches = Object.entries(config.providers).map(async ([name, prov]) => {
+    const apiKey = resolveEnvValue(prov.apiKey);
+    const headers: Record<string, string> = { ...(prov.headers ?? {}) };
+    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+    try {
+      const res = await fetch(`${prov.baseUrl}/models`, { headers, signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return;
+      const json = await res.json() as { data?: { id: string; owned_by?: string }[] };
+      if (json.data && Array.isArray(json.data)) {
+        for (const m of json.data) {
+          results.push({ id: m.id, provider: name, owned_by: m.owned_by });
+        }
+      }
+    } catch { /* provider unreachable, skip */ }
+  });
+  await Promise.all(fetches);
+  results.sort((a, b) => a.id.localeCompare(b.id));
+  return results;
 }
 
 export function startServer(port?: number) {
@@ -231,6 +257,16 @@ export function startServer(port?: number) {
       if (url.pathname.startsWith("/api/")) {
         const mgmtResponse = await handleManagementAPI(req, url, config);
         if (mgmtResponse) return mgmtResponse;
+      }
+
+      if (url.pathname === "/v1/models" && req.method === "GET") {
+        const models = await fetchAllModels(config);
+        return jsonResponse({
+          object: "list",
+          data: models.map(m => ({
+            id: m.id, object: "model", created: 0, owned_by: m.owned_by ?? m.provider,
+          })),
+        });
       }
 
       if (url.pathname === "/v1/responses" && req.method === "POST") {
