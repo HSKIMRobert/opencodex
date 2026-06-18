@@ -35,6 +35,9 @@ function messagesToChatFormat(parsed: OcxParsedRequest): unknown[] {
           }));
           if (!chatMsg.content) chatMsg.content = null;
         }
+        // Skip empty assistant messages (e.g. reasoning-only history items): chat APIs
+        // like DeepSeek reject an assistant message with neither content nor tool_calls.
+        if (chatMsg.content === undefined && chatMsg.tool_calls === undefined) break;
         out.push(chatMsg);
         break;
       }
