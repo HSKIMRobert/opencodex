@@ -124,7 +124,8 @@ export async function runInit(): Promise<void> {
 
   const injectAnswer = await prompt.ask("Inject into Codex config.toml? [Y/n]: ");
   if (injectAnswer.trim().toLowerCase() !== "n") {
-    const result = injectCodexConfig(port);
+    console.log("Fetching available models from provider...");
+    const result = await injectCodexConfig(port, config);
     console.log(result.success ? `✅ ${result.message}` : `⚠️  ${result.message}`);
   }
 

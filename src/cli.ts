@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { readPid, removePid, writePid } from "./config";
+import { loadConfig, readPid, removePid, writePid } from "./config";
 import { startServer } from "./server";
 
 const args = process.argv.slice(2);
@@ -10,15 +10,26 @@ function printUsage() {
 
 Usage:
   ocx init                    Interactive setup (provider + Codex config injection)
-  ocx start [--port <port>]   Start the proxy server
+  ocx start [--port <port>]   Start the proxy server (auto-syncs models to Codex)
   ocx stop                    Stop the running proxy server
+  ocx sync                    Fetch models from providers and inject into Codex config
   ocx status                  Check proxy server status
   ocx help                    Show this help message
 
 Examples:
   ocx init                    Set up provider and inject into Codex
   ocx start                   Start on default port (10100)
-  ocx start --port 8080       Start on custom port`);
+  ocx start --port 8080       Start on custom port
+  ocx sync                    Sync available models to Codex`);
+}
+
+async function syncModelsToCodex(port?: number) {
+  const config = loadConfig();
+  const p = port ?? config.port ?? 10100;
+  const { injectCodexConfig } = await import("./codex-inject");
+  const result = await injectCodexConfig(p, config);
+  console.log(result.message);
+  return result;
 }
 
 function handleStart() {
@@ -40,6 +51,8 @@ function handleStart() {
 
   const server = startServer(port);
   writePid(process.pid);
+
+  syncModelsToCodex(port).catch(() => {});
 
   const shutdown = () => {
     console.log("\n🛑 Shutting down opencodex proxy...");
@@ -92,6 +105,10 @@ switch (command) {
   case "status":
     handleStatus();
     break;
+  case "sync": {
+    await syncModelsToCodex();
+    break;
+  }
   case "gui": {
     const cfg = await import("./config");
     const config = cfg.loadConfig();
