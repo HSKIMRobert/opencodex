@@ -26,15 +26,6 @@ function buildProviderTableBlock(port: number): string {
   return lines.join("\n") + "\n";
 }
 
-function buildProfileTableBlock(catalogPath: string): string {
-  return [
-    "",
-    "[profiles.opencodex]",
-    'model_provider = "opencodex"',
-    `model_catalog_json = ${tomlString(catalogPath)}`,
-  ].join("\n") + "\n";
-}
-
 /**
  * Strip every existing `model_provider` line that we must not duplicate: any line set to
  * "opencodex" (wherever it sits — including a previously mis-nested one under a table), plus any
@@ -161,7 +152,6 @@ export async function injectCodexConfig(port: number, _config?: OcxConfig): Prom
   content = setRootModelProvider(content);
   // 2) Provider table appended at EOF (position-independent).
   content = content.trimEnd() + "\n" + buildProviderTableBlock(port);
-  content = content.trimEnd() + "\n" + buildProfileTableBlock(catalogPath);
 
   writeFileSync(CODEX_CONFIG_PATH, content, "utf-8");
   writeFileSync(CODEX_PROFILE_PATH, buildProfileFile(port, catalogPath), "utf-8");
