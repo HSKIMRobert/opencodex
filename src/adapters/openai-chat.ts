@@ -1,5 +1,5 @@
 import type { ProviderAdapter } from "./base";
-import type { AdapterEvent, OcxAssistantMessage, OcxContentPart, OcxMessage, OcxParsedRequest, OcxProviderConfig, OcxTextContent, OcxToolCall } from "../types";
+import type { AdapterEvent, OcxAssistantMessage, OcxContentPart, OcxMessage, OcxParsedRequest, OcxProviderConfig, OcxTextContent, OcxToolCall, OcxUsage } from "../types";
 import { namespacedToolName } from "../types";
 import { contentPartsToText } from "./image";
 
@@ -96,6 +96,18 @@ function toolChoiceToChatFormat(tc: OcxParsedRequest["options"]["toolChoice"]): 
   return undefined;
 }
 
+function usageFromOpenAIChat(usage: Record<string, unknown> | undefined): OcxUsage | undefined {
+  if (!usage) return undefined;
+  const promptDetails = usage.prompt_tokens_details as Record<string, number> | undefined;
+  const completionDetails = usage.completion_tokens_details as Record<string, number> | undefined;
+  return {
+    inputTokens: typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0,
+    outputTokens: typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0,
+    ...(promptDetails?.cached_tokens !== undefined ? { cachedInputTokens: promptDetails.cached_tokens } : {}),
+    ...(completionDetails?.reasoning_tokens !== undefined ? { reasoningOutputTokens: completionDetails.reasoning_tokens } : {}),
+  };
+}
+
 export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAdapter {
   return {
     name: "openai-chat",
@@ -151,7 +163,7 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
       let buffer = "";
       let currentToolCallId = "";
       let currentToolCallName = "";
-      let pendingUsage: { inputTokens: number; outputTokens: number } | undefined;
+      let pendingUsage: OcxUsage | undefined;
 
       try {
         while (true) {
@@ -182,11 +194,7 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
             }
 
             if (chunk.usage) {
-              const u = chunk.usage as Record<string, number>;
-              pendingUsage = {
-                inputTokens: u.prompt_tokens ?? 0,
-                outputTokens: u.completion_tokens ?? 0,
-              };
+              pendingUsage = usageFromOpenAIChat(chunk.usage as Record<string, unknown>);
               continue;
             }
 
@@ -200,7 +208,7 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
             }
 
             if (typeof delta.reasoning_content === "string" && delta.reasoning_content.length > 0) {
-              yield { type: "thinking_delta", thinking: delta.reasoning_content };
+              yield { type: "reasoning_raw_delta", text: delta.reasoning_content };
             }
 
             const toolCalls = delta.tool_calls as { index: number; id?: string; function?: { name?: string; arguments?: string } }[] | undefined;
@@ -244,6 +252,9 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
           if (typeof msg.content === "string") {
             events.push({ type: "text_delta", text: msg.content });
           }
+          if (typeof msg.reasoning_content === "string" && msg.reasoning_content.length > 0) {
+            events.push({ type: "reasoning_raw_delta", text: msg.reasoning_content });
+          }
           const toolCalls = msg.tool_calls as { id: string; function: { name: string; arguments: string } }[] | undefined;
           if (toolCalls) {
             for (const tc of toolCalls) {
@@ -254,10 +265,10 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
           }
         }
       }
-      const usage = json.usage as Record<string, number> | undefined;
+      const usage = json.usage as Record<string, unknown> | undefined;
       events.push({
         type: "done",
-        usage: usage ? { inputTokens: usage.prompt_tokens ?? 0, outputTokens: usage.completion_tokens ?? 0 } : undefined,
+        usage: usageFromOpenAIChat(usage),
       });
       return events;
     },

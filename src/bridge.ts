@@ -8,6 +8,22 @@ function sseEvent(name: string, data: Record<string, unknown>): string {
   return `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
+function responsesUsage(usage: OcxUsage | undefined): Record<string, unknown> {
+  if (!usage) return { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
+  const out: Record<string, unknown> = {
+    input_tokens: usage.inputTokens,
+    output_tokens: usage.outputTokens,
+    total_tokens: usage.inputTokens + usage.outputTokens,
+  };
+  if (usage.cachedInputTokens !== undefined) {
+    out.input_tokens_details = { cached_tokens: usage.cachedInputTokens };
+  }
+  if (usage.reasoningOutputTokens !== undefined) {
+    out.output_tokens_details = { reasoning_tokens: usage.reasoningOutputTokens };
+  }
+  return out;
+}
+
 interface OutputItem {
   type: string;
   id: string;
@@ -55,6 +71,7 @@ export function bridgeToResponsesSSE(
 
       let currentMsg: { itemId: string; outputIndex: number; text: string } | null = null;
       let currentReasoning: { itemId: string; outputIndex: number; text: string } | null = null;
+      let currentRawReasoning: { itemId: string; outputIndex: number; text: string } | null = null;
       let currentToolCall: { itemId: string; outputIndex: number; callId: string; name: string; args: string; namespace?: string; freeform?: boolean; toolSearch?: boolean } | null = null;
 
       const closeCurrentMessage = () => {
@@ -95,6 +112,18 @@ export function bridgeToResponsesSSE(
         finishedItems.push(item as OutputItem);
         outputIndex++;
         currentReasoning = null;
+      };
+
+      const closeCurrentRawReasoning = () => {
+        if (!currentRawReasoning) return;
+        const item = {
+          type: "reasoning", id: currentRawReasoning.itemId, summary: [],
+          content: [{ type: "reasoning_text", text: currentRawReasoning.text }],
+        };
+        emit("response.output_item.done", { output_index: currentRawReasoning.outputIndex, item });
+        finishedItems.push(item as OutputItem);
+        outputIndex++;
+        currentRawReasoning = null;
       };
 
       const closeCurrentToolCall = () => {
@@ -138,6 +167,7 @@ export function bridgeToResponsesSSE(
           switch (event.type) {
             case "text_delta": {
               if (currentReasoning) closeCurrentReasoning();
+              if (currentRawReasoning) closeCurrentRawReasoning();
               if (currentToolCall) closeCurrentToolCall();
               if (!currentMsg) {
                 const itemId = `msg_${uuid()}`;
@@ -161,6 +191,7 @@ export function bridgeToResponsesSSE(
             }
             case "thinking_delta": {
               if (currentMsg) closeCurrentMessage();
+              if (currentRawReasoning) closeCurrentRawReasoning();
               if (currentToolCall) closeCurrentToolCall();
               if (!currentReasoning) {
                 const itemId = `rs_${uuid()}`;
@@ -179,9 +210,27 @@ export function bridgeToResponsesSSE(
               });
               break;
             }
+            case "reasoning_raw_delta": {
+              if (currentMsg) closeCurrentMessage();
+              if (currentReasoning) closeCurrentReasoning();
+              if (currentToolCall) closeCurrentToolCall();
+              if (!currentRawReasoning) {
+                const itemId = `rs_${uuid()}`;
+                const item = { type: "reasoning", id: itemId, summary: [] as never[], content: [] as { type: string; text: string }[] };
+                emit("response.output_item.added", { output_index: outputIndex, item });
+                currentRawReasoning = { itemId, outputIndex, text: "" };
+              }
+              currentRawReasoning.text += event.text;
+              emit("response.reasoning_text.delta", {
+                item_id: currentRawReasoning.itemId, output_index: currentRawReasoning.outputIndex,
+                content_index: 0, delta: event.text,
+              });
+              break;
+            }
             case "tool_call_start": {
               if (currentMsg) closeCurrentMessage();
               if (currentReasoning) closeCurrentReasoning();
+              if (currentRawReasoning) closeCurrentRawReasoning();
               if (currentToolCall) closeCurrentToolCall();
               const itemId = `fc_${uuid()}`;
               const mapped = toolNsMap?.get(event.name);
@@ -217,20 +266,17 @@ export function bridgeToResponsesSSE(
             case "done": {
               if (currentMsg) closeCurrentMessage();
               if (currentReasoning) closeCurrentReasoning();
+              if (currentRawReasoning) closeCurrentRawReasoning();
               if (currentToolCall) closeCurrentToolCall();
-              const usage = event.usage ? {
-                input_tokens: event.usage.inputTokens,
-                output_tokens: event.usage.outputTokens,
-                total_tokens: event.usage.inputTokens + event.usage.outputTokens,
-              } : { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
               emit("response.completed", {
-                response: { ...responseSnapshot("completed", finishedItems), usage },
+                response: { ...responseSnapshot("completed", finishedItems), usage: responsesUsage(event.usage) },
               });
               break;
             }
             case "error": {
               if (currentMsg) closeCurrentMessage();
               if (currentReasoning) closeCurrentReasoning();
+              if (currentRawReasoning) closeCurrentRawReasoning();
               if (currentToolCall) closeCurrentToolCall();
               emit("response.failed", {
                 response: {
@@ -264,11 +310,29 @@ export function buildResponseJSON(
   const responseId = `resp_${uuid()}`;
   const output: OutputItem[] = [];
   let text = "";
+  let summaryReasoning = "";
+  let rawReasoning = "";
   let usage: OcxUsage | undefined;
 
   for (const e of events) {
     if (e.type === "text_delta") text += e.text;
+    if (e.type === "thinking_delta") summaryReasoning += e.thinking;
+    if (e.type === "reasoning_raw_delta") rawReasoning += e.text;
     if (e.type === "done") usage = e.usage;
+  }
+
+  if (rawReasoning) {
+    output.push({
+      type: "reasoning", id: `rs_${uuid()}`, summary: [],
+      content: [{ type: "reasoning_text", text: rawReasoning }],
+    });
+  }
+
+  if (summaryReasoning) {
+    output.push({
+      type: "reasoning", id: `rs_${uuid()}`,
+      summary: [{ type: "summary_text", text: summaryReasoning }],
+    });
   }
 
   if (text) {
@@ -282,10 +346,7 @@ export function buildResponseJSON(
     id: responseId, object: "response",
     created_at: Math.floor(Date.now() / 1000),
     status: "completed", model: modelId, output,
-    usage: usage ? {
-      input_tokens: usage.inputTokens, output_tokens: usage.outputTokens,
-      total_tokens: usage.inputTokens + usage.outputTokens,
-    } : { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+    usage: responsesUsage(usage),
   };
 }
 

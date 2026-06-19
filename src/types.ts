@@ -149,6 +149,7 @@ export interface OcxRequestOptions {
 export type AdapterEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; thinking: string }
+  | { type: "reasoning_raw_delta"; text: string }
   | { type: "tool_call_start"; id: string; name: string }
   | { type: "tool_call_delta"; arguments: string }
   | { type: "tool_call_end" }
@@ -158,6 +159,8 @@ export type AdapterEvent =
 export interface OcxUsage {
   inputTokens: number;
   outputTokens: number;
+  cachedInputTokens?: number;
+  reasoningOutputTokens?: number;
 }
 
 export interface OcxConfig {

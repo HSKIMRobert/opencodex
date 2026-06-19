@@ -9,6 +9,7 @@ import type {
   OcxTextContent,
   OcxThinkingContent,
   OcxToolCall,
+  OcxUsage,
 } from "../types";
 import { ANTHROPIC_OAUTH_BETA, CLAUDE_CODE_SYSTEM_INSTRUCTION, applyClaudeToolPrefix, stripClaudeToolPrefix } from "../oauth/anthropic";
 import { parseDataUrl } from "./image";
@@ -46,6 +47,16 @@ function reasoningBudget(effort: string): number {
     case "medium":
     default: return 8192;
   }
+}
+
+function usageFromAnthropic(usage: Record<string, number> | undefined): OcxUsage | undefined {
+  if (!usage) return undefined;
+  const hasCache = usage.cache_read_input_tokens !== undefined || usage.cache_creation_input_tokens !== undefined;
+  return {
+    inputTokens: usage.input_tokens ?? 0,
+    outputTokens: usage.output_tokens ?? 0,
+    ...(hasCache ? { cachedInputTokens: (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) } : {}),
+  };
 }
 
 function messagesToAnthropicFormat(parsed: OcxParsedRequest, isOAuth: boolean): { system: string | undefined; messages: unknown[] } {
@@ -255,10 +266,7 @@ export function createAnthropicAdapter(provider: OcxProviderConfig): ProviderAda
                 if (usage) {
                   yield {
                     type: "done",
-                    usage: {
-                      inputTokens: usage.input_tokens ?? 0,
-                      outputTokens: usage.output_tokens ?? 0,
-                    },
+                    usage: usageFromAnthropic(usage),
                   };
                 }
                 break;
@@ -298,7 +306,7 @@ export function createAnthropicAdapter(provider: OcxProviderConfig): ProviderAda
       const usage = json.usage as Record<string, number> | undefined;
       events.push({
         type: "done",
-        usage: usage ? { inputTokens: usage.input_tokens ?? 0, outputTokens: usage.output_tokens ?? 0 } : undefined,
+        usage: usageFromAnthropic(usage),
       });
       return events;
     },

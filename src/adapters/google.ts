@@ -7,6 +7,7 @@ import type {
   OcxProviderConfig,
   OcxTextContent,
   OcxToolCall,
+  OcxUsage,
 } from "../types";
 import { contentPartsToText, parseDataUrl } from "./image";
 
@@ -72,6 +73,16 @@ function toolsToGeminiFormat(parsed: OcxParsedRequest): unknown[] | undefined {
       parameters: t.parameters,
     })),
   }];
+}
+
+function usageFromGemini(usage: Record<string, number> | undefined): OcxUsage | undefined {
+  if (!usage) return undefined;
+  return {
+    inputTokens: usage.promptTokenCount ?? 0,
+    outputTokens: usage.candidatesTokenCount ?? 0,
+    ...(usage.cachedContentTokenCount !== undefined ? { cachedInputTokens: usage.cachedContentTokenCount } : {}),
+    ...(usage.thoughtsTokenCount !== undefined ? { reasoningOutputTokens: usage.thoughtsTokenCount } : {}),
+  };
 }
 
 export function createGoogleAdapter(provider: OcxProviderConfig): ProviderAdapter {
@@ -153,10 +164,7 @@ export function createGoogleAdapter(provider: OcxProviderConfig): ProviderAdapte
             if (candidates[0].finishReason && usageMeta) {
               yield {
                 type: "done",
-                usage: {
-                  inputTokens: usageMeta.promptTokenCount ?? 0,
-                  outputTokens: usageMeta.candidatesTokenCount ?? 0,
-                },
+                usage: usageFromGemini(usageMeta),
               };
             }
           }
@@ -187,7 +195,7 @@ export function createGoogleAdapter(provider: OcxProviderConfig): ProviderAdapte
       const usage = json.usageMetadata as Record<string, number> | undefined;
       events.push({
         type: "done",
-        usage: usage ? { inputTokens: usage.promptTokenCount ?? 0, outputTokens: usage.candidatesTokenCount ?? 0 } : undefined,
+        usage: usageFromGemini(usage),
       });
       return events;
     },
