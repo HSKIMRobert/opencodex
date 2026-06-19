@@ -29,15 +29,17 @@ Current catalog behavior is not explicit:
 For routed non-OpenAI catalog entries:
 
 ```text
-web_search_tool_type = "text"
+web_search_tool_type = "text_and_image"
 supports_search_tool = true
 ```
 
 Reason:
 
-- `web_search_tool_type = "text"` avoids advertising OpenAI native image-search semantics for routed
-  models. opencodex sidecar search is text-query based and can verbalize image results, but it is not
-  native hosted image search end-to-end.
+- `web_search_tool_type = "text_and_image"` is truthful for opencodex's routed path because hosted
+  search is executed by the default `gpt-5.4-mini` sidecar, and native Codex marks `gpt-5.4-mini` as
+  text+image search capable.
+- Routed upstream models still do not receive OpenAI hosted image-search tools directly. opencodex
+  intercepts hosted web search, then the sidecar verbalizes image results for text-only routed models.
 - `supports_search_tool = true` is deliberate, not inherited: opencodex already supports Codex's
   deferred `tool_search` surface through parser/bridge relaying.
 
@@ -56,7 +58,7 @@ Add:
 
 ```ts
 function normalizeRoutedSearchMetadata(entry: RawEntry): void {
-  entry.web_search_tool_type = "text";
+  entry.web_search_tool_type = "text_and_image";
   entry.supports_search_tool = true;
 }
 ```
@@ -74,7 +76,7 @@ Extend the native-like template to include `web_search_tool_type = "text_and_ima
 
 Add tests proving:
 
-1. routed entries normalize `web_search_tool_type` to `text`;
+1. routed entries normalize `web_search_tool_type` to `text_and_image`;
 2. routed entries deliberately keep `supports_search_tool = true`;
 3. native bare GPT entries preserve `text_and_image`.
 

@@ -17,7 +17,7 @@ Primary files:
 Routed non-OpenAI catalog entries now set:
 
 ```text
-web_search_tool_type = "text"
+web_search_tool_type = "text_and_image"
 supports_search_tool = true
 ```
 
@@ -25,8 +25,10 @@ This is deliberate policy, not native-template inheritance.
 
 Meaning:
 
-- `web_search_tool_type = "text"` avoids advertising OpenAI native text+image hosted search for
-  routed models.
+- `web_search_tool_type = "text_and_image"` advertises the capability opencodex can actually provide
+  through the default `gpt-5.4-mini` sidecar. The routed upstream model does not run OpenAI hosted
+  image search directly; the sidecar runs it and verbalizes image results when the downstream model is
+  text-only.
 - `supports_search_tool = true` keeps Codex deferred `tool_search` available. It does not enable
   hosted web search by itself.
 
@@ -52,7 +54,7 @@ Added or extended tests:
 
 Covered assertions:
 
-1. routed catalog entries force `web_search_tool_type = "text"`;
+1. routed catalog entries force `web_search_tool_type = "text_and_image"`;
 2. routed catalog entries deliberately set `supports_search_tool = true`;
 3. native bare GPT entries preserve native `text_and_image`;
 4. template-less fallback routed entries still receive explicit search metadata;
