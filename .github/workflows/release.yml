@@ -82,7 +82,8 @@ jobs:
         run: |
           if [ "${{ inputs.dry-run }}" = "true" ]; then
             echo "::notice::DRY RUN — building + packing, not publishing"
-            npm publish --dry-run --tag "${{ inputs.tag }}" --access public
+            npm run prepublishOnly
+            npm pack --dry-run
           else
             npm publish --tag "${{ inputs.tag }}" --access public
           fi
