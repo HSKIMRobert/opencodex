@@ -42,6 +42,7 @@ export function bridgeToResponsesSSE(
   freeformToolNames?: Set<string>,
   toolSearchToolNames?: Set<string>,
   onCancel?: () => void,
+  heartbeatMs = 2_000,
 ): ReadableStream<Uint8Array> {
   // Freeform/custom tools (apply_patch) carry their body in `input`; the model is given a
   // function with `{input:string}`, so unwrap it here when relaying back as a custom_tool_call.
@@ -60,11 +61,18 @@ export function bridgeToResponsesSSE(
   // never enqueue again and never throw a second time inside start() — the RC2 double-throw that
   // otherwise surfaced as proxy-side stream noise on every client disconnect.
   let closed = false;
+  // RC3 keep-alive: Codex's idle timer is timeout(idle_timeout, stream.next()) over an
+  // eventsource_stream; ANY received event re-arms it, while an unknown type is ignored
+  // (responses.rs `_ => Ok(None)`). We emit a real, parser-ignored `response.heartbeat` only during
+  // upstream silence so a stalled routed provider never trips "idle timeout waiting for SSE".
+  let activity = false;
+  let beat: ReturnType<typeof setInterval> | undefined;
 
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       const emit = (name: string, data: Record<string, unknown>) => {
         if (closed) return;
+        activity = true;
         try {
           controller.enqueue(encoder.encode(sseEvent(name, { type: name, sequence_number: seq++, ...data })));
         } catch {
@@ -90,6 +98,15 @@ export function bridgeToResponsesSSE(
       });
 
       emit("response.created", { response: responseSnapshot("in_progress", []) });
+
+      // Re-arm Codex's idle timer during silence with a parser-ignored heartbeat (RC3). Skips a tick
+      // whenever a real event was emitted since the last tick, so it only fires on a genuine stall.
+      const heartbeatFrame = encoder.encode('event: response.heartbeat\ndata: {"type":"response.heartbeat"}\n\n');
+      beat = setInterval(() => {
+        if (closed) return;
+        if (activity) { activity = false; return; }
+        try { controller.enqueue(heartbeatFrame); } catch { closed = true; }
+      }, heartbeatMs);
 
       let currentMsg: { itemId: string; outputIndex: number; text: string } | null = null;
       let currentReasoning: { itemId: string; outputIndex: number; text: string } | null = null;
@@ -330,6 +347,8 @@ export function bridgeToResponsesSSE(
         terminated = true;
       }
 
+      if (beat) clearInterval(beat);
+
       if (!terminated) {
         // The adapter generator ended without a done/error event (e.g. an upstream that closes
         // after message_stop, or a routed provider that drops the connection cleanly). Close any
@@ -354,6 +373,7 @@ export function bridgeToResponsesSSE(
       // Client (Codex) disconnected. Stop emitting and let the caller abort the upstream fetch so a
       // cancelled turn does not leak the upstream stream or keep draining tokens (RC2).
       closed = true;
+      if (beat) clearInterval(beat);
       onCancel?.();
     },
   });
