@@ -109,19 +109,25 @@ Tasks:
 3. Add context-window exceeded and quota/rate-limit fixtures.
 4. Synthesize Codex-relevant headers only where opencodex has truthful data.
 
-### 100.6 Websocket Spike Only After Parity
+### 100.6 Websocket Work Removed
 
-Primary files:
+Phase 100 will not include a websocket spike.
+
+Final policy:
 
 ```text
-/Users/jun/Developer/new/700_projects/opencodex/src/server.ts
+routed providers keep supports_websockets absent/false
 ```
 
-Tasks:
+Reason:
 
-1. Do not enable `supports_websockets` in normal config yet.
-2. If attempted later, build a separate spike for an end-to-end Responses websocket proxy.
-3. Measure first-token and end-to-end latency against current HTTP/SSE before keeping it.
+opencodex routed models mostly end in upstream HTTP/SSE Chat Completions or HTTP/SSE-compatible
+streams. Adding websocket only between Codex and opencodex does not make those upstream providers
+websocket-native. It would advertise a capability the routed model path does not support end-to-end
+and is not expected to materially improve speed.
+
+Future websocket work, if any, must be a separate provider-specific transport project for a provider
+that actually exposes a websocket-native API. It is not part of Phase 100.
 
 ## Verification Gates
 
@@ -164,6 +170,8 @@ Runtime checks:
 3. Should routed models expose deferred `tool_search` by default?
 4. What conservative context-window default should apply when jawcode has no exact provider/model
    match?
+5. Resolved: Phase 100 will not implement websocket support or a websocket spike. Routed providers
+   keep `supports_websockets` absent/false.
 
 ## Proposed First Build Slice
 
@@ -185,3 +193,5 @@ Then add jawcode metadata snapshot support:
 4. write only Codex-verified catalog fields.
 
 Streaming/context/error parity should follow after catalog semantics are stable.
+
+Websocket work is intentionally excluded from this phase.

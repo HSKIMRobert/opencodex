@@ -63,11 +63,27 @@ Use native Codex metadata only as a structural template. For routed entries:
    leak through `instructions_template`.
 2. Normalize `tool_mode`, `multi_agent_version`, and `use_responses_lite` instead of inheriting them
    silently from the native template.
-3. Do not set `supports_websockets = true` until opencodex has an end-to-end Responses websocket
-   proxy; the current routed path is still mostly HTTP/SSE Chat Completions upstream.
+3. Do not implement websocket support in Phase 100. Keep `supports_websockets` absent/false for
+   routed providers because the routed path is upstream HTTP/SSE, and a websocket first hop cannot
+   make non-websocket upstream models websocket-capable.
 4. Add provider/model-specific context-window metadata instead of inheriting native GPT limits.
 5. Extend usage/reasoning streaming parity so Codex receives cached/reasoning token details and the
    correct reasoning channel shape.
+
+## Websocket Decision Update
+
+Earlier Phase 100 docs treated websocket as a possible later spike. That is now explicitly out of
+scope for Phase 100.
+
+```text
+Decision: no 100.6 websocket spike
+Policy: routed providers keep supports_websockets absent/false
+Reason: upstream routed providers are HTTP/SSE, so websocket is not end-to-end
+```
+
+If websocket-native provider support is ever useful, it should be a separate transport project after
+a provider exposes a real websocket endpoint that opencodex can bridge without converting back to
+HTTP/SSE internally.
 
 ## Follow-up Decision Update
 

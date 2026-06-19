@@ -167,7 +167,30 @@ Examples:
 | `moonshot` / `kimi` | Kimi/Moonshot descriptor ids |
 | `openrouter` | `openrouter` |
 | `alibaba` | `alibaba-coding-plan` or other Alibaba descriptor ids |
-| `opencode-go` | no direct jawcode provider id; likely custom opencodex/runtime source |
+| `opencode-go` | `opencode-go` |
+
+Correction: `opencode-go` is already in jawcode. It is not an unmapped custom-only source.
+
+Evidence:
+
+```text
+/Users/jun/Developer/new/700_projects/jawcode/packages/ai/src/types.ts:130
+/Users/jun/Developer/new/700_projects/jawcode/packages/ai/src/provider-models/descriptors.ts:178
+/Users/jun/Developer/new/700_projects/jawcode/packages/ai/src/provider-models/openai-compat.ts:859
+/Users/jun/Developer/new/700_projects/jawcode/packages/ai/src/provider-models/openai-compat.ts:862
+/Users/jun/Developer/new/700_projects/jawcode/packages/ai/src/provider-models/openai-compat.ts:2112
+/Users/jun/Developer/new/700_projects/jawcode/packages/ai/src/provider-models/openai-compat.ts:2338
+```
+
+jawcode models it as an OpenAI-compatible provider using:
+
+```text
+https://opencode.ai/zen/go/v1
+```
+
+with explicit API-resolution overrides for known OpenCode Go routing mismatches. The Phase 100
+metadata generator should therefore map opencodex `opencode-go` directly to jawcode `opencode-go`
+and reuse jawcode's discovered context/capability metadata where exact model ids match.
 
 Policy:
 

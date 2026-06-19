@@ -93,10 +93,32 @@ A real speed benefit is only plausible for:
 2. providers that themselves expose a low-latency websocket protocol opencodex can bridge without
    converting back to HTTP/SSE internally.
 
+## Decision: No Phase 100 Websocket Work
+
+Phase 100 should not include a websocket spike.
+
+Reason:
+
+- opencodex's routed upstreams are mostly HTTP/SSE Chat Completions or HTTP/SSE-compatible streams;
+- enabling websocket only between Codex and opencodex cannot make a provider/model websocket-capable
+  when the upstream provider is not websocket-capable end-to-end;
+- a websocket first hop would still block on the same upstream SSE chunks, so it is unlikely to
+  improve first-token latency or throughput;
+- setting `supports_websockets = true` would advertise a native capability opencodex does not
+  actually provide for routed models.
+
+The stable policy is therefore:
+
+```text
+routed providers -> supports_websockets absent/false -> HTTP/SSE path only
+```
+
+If a future provider exposes a real websocket-native protocol, that should be designed as a separate
+provider-specific transport project, not Phase 100 Codex-native parity work.
+
 ## Phase 100 Recommendation
 
-1. Do not set `supports_websockets = true` for opencodex until the server implements the Codex
-   Responses websocket protocol.
+1. Do not set `supports_websockets = true` for opencodex routed providers.
 2. Strip or explicitly set `use_responses_lite = false` for routed non-OpenAI models unless
    opencodex implements the related request-shape differences.
 3. Preserve `use_responses_lite` only for native OpenAI passthrough models if Codex's native template
