@@ -12,6 +12,7 @@ Commits:
 - `334f7c2 fix: gate websocket transport by explicit opt-in`
 - `e27f44c fix: harden responses websocket protocol`
 - `2e4733d fix: preserve websocket turn cancellation hooks`
+- `df8c047 fix: abort websocket turns before upstream headers`
 
 Modified:
 
@@ -37,9 +38,10 @@ Modified:
 - Terminal enforcement: the WS pump stops at the first terminal, cancels the reader, and reports EOF
   before terminal as standalone `type:error`.
 - Header/error fidelity: non-2xx responses use standalone `type:error` with HTTP status and safe
-  headers; inbound WS data stores only forwarded allowlist headers.
+  headers, including Codex rate-limit header families; inbound WS data stores only forwarded
+  allowlist headers.
 - Cancellation: socket close still cancels upstream, and same-socket replacement turns cancel the
-  previous in-flight reader and suppress stale frames.
+  previous in-flight reader/fetch before upstream headers arrive and suppress stale frames.
 - Framing/backpressure: CRLF, multiline data, split chunks, unterminated final event, dropped send,
   `-1` backpressure, and bounded sniff replay are covered by tests.
 - Advertisement: absent `websockets` is now false; only explicit `websockets: true` advertises
@@ -50,9 +52,11 @@ Modified:
 - `bun test tests/codex-inject.test.ts tests/codex-catalog.test.ts`
   - 16 pass, 0 fail, 104 assertions.
 - `bun test tests/ws-endpoint.test.ts`
-  - 18 pass, 0 fail, 37 assertions.
+  - 19 pass, 0 fail, 39 assertions.
+- `bun test tests/passthrough-abort.test.ts`
+  - 4 pass, 0 fail, 8 assertions.
 - `bun test tests`
-  - 77 pass, 0 fail, 255 assertions.
+  - 81 pass, 0 fail, 264 assertions.
 - `bun x tsc --noEmit`
   - passed with exit 0.
 
@@ -97,3 +101,21 @@ therefore implements the server-side safe behavior available to opencodex: socke
 and same-socket replacement-turn cancellation. A human-visible TUI Ctrl-C transcript remains useful
 release evidence if automation can drive it reliably, but it is no longer the only proof of stale
 frame isolation.
+
+## Independent Review Follow-up
+
+The first read-only Phase 132 release review failed on two remaining release-blocking points:
+
+- Cancellation was installed only after an upstream `Response` existed. Fix: a turn-level
+  `AbortController` is now installed immediately on `response.create`, plumbed into
+  `handleResponses`, and linked to both passthrough and bridged upstream fetches.
+- The safe WebSocket error header allowlist did not retain Codex rate-limit headers. Fix:
+  `safeResponseHeaders()` now preserves the `x-codex-<limit>-primary/secondary-*` and
+  `x-codex-<limit>-limit-name` families parsed by Codex RS.
+
+Regression coverage:
+
+- `tests/passthrough-abort.test.ts` asserts that a turn-level abort signal aborts the upstream
+  controller before response headers arrive.
+- `tests/ws-endpoint.test.ts` asserts stale successful response bodies are cancelled before pumping
+  and Codex rate-limit headers survive WebSocket error sanitization.
